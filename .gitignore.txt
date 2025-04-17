@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.log
+.env
+node_modules/
+dist/
+build/
+cdk.out/
+amplify/
+.idea/
+.vscode/
+.DS_Store
