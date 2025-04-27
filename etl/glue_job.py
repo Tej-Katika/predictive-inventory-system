@@ -1,37 +1,70 @@
 import sys
 import boto3
 import pandas as pd
+from io import BytesIO
 from awsglue.utils import getResolvedOptions
+from datetime import datetime
 
-# Get job parameters passed via CDK
-args = getResolvedOptions(sys.argv, ['JOB_NAME', 'BUCKET_NAME'])
+# Step 0: Get job arguments
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])
 
-# Use bucket from arguments
-raw_bucket = args['BUCKET_NAME']
-raw_prefix = "raw/"
-clean_prefix = "clean/"
-
+# Step 1: Setup S3 client and configuration
 s3 = boto3.client('s3')
+bucket = "cdkstack-inventorydatabucket1b7c2a3c-dsqfppsvh2hm"
+clean_prefix = "clean/"
+aggregated_prefix = "aggregated/"
 
-def list_s3_objects(bucket, prefix):
-    response = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-    return [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith('.json')]
+def log(msg):
+    print(f"[Glue ETL] {msg}")
 
-def process_file(key):
-    obj = s3.get_object(Bucket=raw_bucket, Key=key)
-    df = pd.read_json(obj['Body'])
+# Step 2: List JSON files in clean/ folder
+response = s3.list_objects_v2(Bucket=bucket, Prefix=clean_prefix)
+keys = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith('.json')]
 
-    # Basic transformation
-    df.drop(columns=['session_id'], inplace=True, errors='ignore')
-    df.rename(columns={'sales_date': 'timestamp'}, inplace=True)
+log(f"Found {len(keys)} files in {clean_prefix}")
 
-    output_buffer = df.to_json(orient='records', lines=True)
-    s3.put_object(Bucket=raw_bucket, Key=key.replace(raw_prefix, clean_prefix), Body=output_buffer)
+if not keys:
+    log("No files found. Exiting.")
+    sys.exit(0)
 
-def main():
-    raw_keys = list_s3_objects(raw_bucket, raw_prefix)
-    for key in raw_keys:
-        process_file(key)
+# Step 3: Load and concatenate all JSON records
+all_records = []
+for key in keys:
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        content = obj['Body'].read()
+        df = pd.read_json(BytesIO(content), lines=True)
+        all_records.append(df)
+    except Exception as e:
+        log(f"Failed to process {key}: {e}")
 
-if __name__ == "__main__":
-    main()
+if not all_records:
+    log("No valid records to process.")
+    sys.exit(0)
+
+full_df = pd.concat(all_records, ignore_index=True)
+
+# Step 4: Timestamp normalization and grouping
+full_df['timestamp'] = pd.to_datetime(full_df['timestamp'], utc=True, errors='coerce')
+full_df['date'] = full_df['timestamp'].dt.date
+
+grouped = (
+    full_df.groupby(['date', 'department'])
+           .agg({'price_numeric': 'sum'})
+           .reset_index()
+           .rename(columns={'price_numeric': 'total_sales'})
+)
+
+log(f"Writing {len(grouped)} aggregated files to S3...")
+
+# Step 5: Write CSV per day per department
+for _, row in grouped.iterrows():
+    try:
+        output_key = f"{aggregated_prefix}{row['department'].replace(' ', '_')}/{row['date']}.csv"
+        csv_data = row.to_frame().T.to_csv(index=False)
+        s3.put_object(Bucket=bucket, Key=output_key, Body=csv_data)
+        log(f"Written: {output_key}")
+    except Exception as e:
+        log(f"Failed to write {output_key}: {e}")
+
+log("Aggregation complete.")
