@@ -8,8 +8,11 @@ from aws_cdk import (
 from constructs import Construct
 
 class SageMakerStudioStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, **kwargs):
+    def __init__(self, scope: Construct, construct_id: str, vpc: ec2.IVpc, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
+        subnet_ids = [subnet.subnet_id for subnet in vpc.private_subnets]
+        vpc_id = vpc.vpc_id
+        self.vpc = vpc
 
         # 1. SageMaker Execution Role
         sagemaker_role = iam.Role(
@@ -30,8 +33,7 @@ class SageMakerStudioStack(Stack):
             ),
             domain_name="domain-04-25-2025-092423", 
             vpc_id="vpc-0496e679ca96b4968",   # <<< Provide EMPTY string
-            subnet_ids=["subnet-09d05abf5cce850f67",  #private subnet 1
-                        "subnet-0c1db4146eb3d5e01"],  
+            subnet_ids=["subnet-0e82de44c4a76ee9a", "subnet-09d05abf5ce850f67"],  
             app_network_access_type="VpcOnly"
         )
 
