@@ -1,29 +1,22 @@
-import os
-import aws_cdk as cdk
-from aws_cdk import aws_ec2 as ec2
+#!/usr/bin/env python3
 
-from vpc_stack.vpc_stack import VPCStack
-from sagemaker_stack.sagemaker_stack import SageMakerStudioStack
+import aws_cdk as cdk
+
+from cdk.predictive_inventory_stack import PredictiveInventoryStack
+from sagemaker_training_stack import SageMakerTrainingStack
+
+from aws_cdk import aws_ec2 as ec2
 
 app = cdk.App()
 
-# 1. Create VPC first
-vpc_stack = VPCStack(
-    app, "VPCStack",
-    env=cdk.Environment(
-        account=os.getenv("CDK_DEFAULT_ACCOUNT"),
-        region=os.getenv("CDK_DEFAULT_REGION")
-    )
-)
+# Inventory Pipeline Stack
+PredictiveInventoryStack(app, "PredictiveInventoryStack")
 
-# 2. Then pass VPC into SageMaker Studio Stack
-sagemaker_stack = SageMakerStudioStack(
-    app, "SageMakerStudioStack",
-    vpc=vpc_stack.vpc,
-    env=cdk.Environment(
-        account=os.getenv("CDK_DEFAULT_ACCOUNT"),
-        region=os.getenv("CDK_DEFAULT_REGION")
-    )
-)
+# Provide your existing SageMaker Execution Role ARN
+sagemaker_execution_role_arn = "arn:aws:iam::515966531467:role/SageMaker-training-for-lambda"
+
+# SageMaker Training Stack
+SageMakerTrainingStack(app, "SageMakerTrainingStack",
+                       sagemaker_execution_role_arn=sagemaker_execution_role_arn)
 
 app.synth()
