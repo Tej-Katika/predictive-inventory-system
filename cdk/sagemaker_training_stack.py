@@ -7,10 +7,21 @@ from aws_cdk import (
     aws_iam as iam,
 )
 from constructs import Construct
+from aws_cdk.aws_lambda import LayerVersion, Code
+import os
 
 class SageMakerTrainingStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, sagemaker_execution_role_arn: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        layer_zip_path = os.path.join(os.path.dirname(__file__), "lambda_layer/sagemaker-layer.zip")
+
+        sagemaker_layer = _lambda.LayerVersion(
+            self, "SageMakerSDKLayer",
+            code=_lambda.Code.from_asset(layer_zip_path),
+            compatible_runtimes=[_lambda.Runtime.PYTHON_3_11],
+            description="SageMaker SDK Layer"
+        )
 
         # 1. Lambda Function to Launch SageMaker Training Job
         training_lambda = _lambda.Function(
@@ -21,6 +32,7 @@ class SageMakerTrainingStack(Stack):
             environment={
                 "SAGEMAKER_EXECUTION_ROLE_ARN": sagemaker_execution_role_arn
             },
+            layers=[sagemaker_layer],
             timeout=Duration.minutes(5),
         )
 
